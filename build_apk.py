@@ -43,18 +43,36 @@ def write_counter(next_value: int):
     COUNTER_FILE.write_text(str(next_value))
 
 
-def webp_duration_ms(path: Path) -> int:
-    """Return total animation duration in ms using webpmux."""
+def validate_webp(path: Path):
+    """Return list of WhatsApp violation strings, empty if the sticker is valid."""
     r = subprocess.run(["webpmux", "-info", str(path)], capture_output=True, text=True)
-    total = 0
+    frames = 0
+    total_ms = 0
+    width = height = 0
     for line in r.stdout.splitlines():
         parts = line.split()
-        if parts and parts[0].endswith(":") and parts[0][:-1].isdigit():
+        if "Canvas size:" in line:
             try:
-                total += int(parts[6])
+                width, height = int(parts[2]), int(parts[4])
             except (IndexError, ValueError):
                 pass
-    return total
+        if parts and parts[0].endswith(":") and parts[0][:-1].isdigit():
+            frames += 1
+            try:
+                total_ms += int(parts[6])
+            except (IndexError, ValueError):
+                pass
+    size_kb = path.stat().st_size // 1024
+    issues = []
+    if frames < 2:
+        issues.append(f"not animated ({frames} frame)")
+    if total_ms > 10000:
+        issues.append(f"duration {total_ms}ms > 10000ms")
+    if size_kb > 500:
+        issues.append(f"size {size_kb}KB > 500KB")
+    if width and height and (width != 512 or height != 512):
+        issues.append(f"dimensions {width}x{height} != 512x512")
+    return issues
 
 
 def first_frame(path: Path) -> Image.Image:
@@ -77,22 +95,23 @@ def main():
         print(f"No .webp files found in {INPUT_DIR}")
         sys.exit(1)
 
-    # Validate: remove stickers that violate WhatsApp limits before packing
+    # Validate all WhatsApp requirements before packing
+    print("Validating stickers...")
     webp_files = []
     rejected = []
     for f in all_webp:
-        dur = webp_duration_ms(f)
-        if dur > 10000:
-            rejected.append((f.name, dur))
+        issues = validate_webp(f)
+        if issues:
+            rejected.append((f.name, issues))
         else:
             webp_files.append(f)
 
     if rejected:
-        print(f"Skipped {len(rejected)} sticker(s) exceeding 10s duration:")
-        for name, dur in rejected:
-            print(f"  {name}: {dur}ms")
+        print(f"Rejected {len(rejected)} sticker(s) violating WhatsApp limits:")
+        for name, issues in rejected:
+            print(f"  {name}: {', '.join(issues)}")
 
-    print(f"Packing {len(webp_files)} WebP files ({len(rejected)} rejected)")
+    print(f"Packing {len(webp_files)} valid stickers ({len(rejected)} rejected)")
 
     # Clean any previous assets, keep the folder
     if ASSETS_DIR.exists():
