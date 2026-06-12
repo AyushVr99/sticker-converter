@@ -1,0 +1,6 @@
+services:
+  converter:
+    build: .
+    volumes:
+      - ./pack-1:/input:ro
+      - ./pack-1-whatsapp:/output
