@@ -43,6 +43,20 @@ def write_counter(next_value: int):
     COUNTER_FILE.write_text(str(next_value))
 
 
+def webp_duration_ms(path: Path) -> int:
+    """Return total animation duration in ms using webpmux."""
+    r = subprocess.run(["webpmux", "-info", str(path)], capture_output=True, text=True)
+    total = 0
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        if parts and parts[0].endswith(":") and parts[0][:-1].isdigit():
+            try:
+                total += int(parts[6])
+            except (IndexError, ValueError):
+                pass
+    return total
+
+
 def first_frame(path: Path) -> Image.Image:
     img = Image.open(str(path))
     img.seek(0)
@@ -58,12 +72,27 @@ def main():
     def sort_key(p):
         return int(p.stem) if p.stem.isdigit() else p.stem
 
-    webp_files = sorted(INPUT_DIR.glob("*.webp"), key=sort_key)
-    if not webp_files:
+    all_webp = sorted(INPUT_DIR.glob("*.webp"), key=sort_key)
+    if not all_webp:
         print(f"No .webp files found in {INPUT_DIR}")
         sys.exit(1)
 
-    print(f"Found {len(webp_files)} WebP files")
+    # Validate: remove stickers that violate WhatsApp limits before packing
+    webp_files = []
+    rejected = []
+    for f in all_webp:
+        dur = webp_duration_ms(f)
+        if dur > 10000:
+            rejected.append((f.name, dur))
+        else:
+            webp_files.append(f)
+
+    if rejected:
+        print(f"Skipped {len(rejected)} sticker(s) exceeding 10s duration:")
+        for name, dur in rejected:
+            print(f"  {name}: {dur}ms")
+
+    print(f"Packing {len(webp_files)} WebP files ({len(rejected)} rejected)")
 
     # Clean any previous assets, keep the folder
     if ASSETS_DIR.exists():

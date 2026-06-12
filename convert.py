@@ -47,7 +47,7 @@ def render_frames(tgs_path: Path, step: int, size: int = TARGET_SIZE):
         return [], 0
 
     frame_ms = max(1, round(1000 / (fps / step)))
-    max_frames = int(MAX_SECONDS * MAX_FPS)
+    max_frames = int(MAX_SECONDS * 1000 / frame_ms)
     indices = list(range(0, total, step))[:max_frames]
 
     frames = []
@@ -71,7 +71,7 @@ def extract_frames_ffmpeg(src: Path, step_fps: float, tmpdir: str):
     cmd = [
         "ffmpeg", "-y", "-i", str(src),
         "-vf", f"fps={step_fps},scale={TARGET_SIZE}:{TARGET_SIZE}:flags=lanczos,format=rgba",
-        "-vframes", str(int(MAX_SECONDS * step_fps)),
+        "-t", str(MAX_SECONDS),  # hard cap on output duration (more reliable than -vframes)
         out_pattern,
     ]
     result = subprocess.run(cmd, capture_output=True)
